@@ -1,20 +1,19 @@
+// index.js
 const express = require('express');
 const crypto = require('crypto');
 const cors = require('cors');
 const path = require('path');
+const pool = require('./db');
+require('dotenv').config();
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 app.use(express.json());
-
-// Aktifkan kalau kamu akses dari origin yg beda (mis. http://127.0.0.1:5500)
-// app.use(cors({ origin: true, credentials: true }));
-
-// Serve /public (taruh index.html lu di sini)
+app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API generate key
+// util: generate api key
 function generateApiKey(length = 40) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   const buf = crypto.randomBytes(length);
@@ -23,49 +22,114 @@ function generateApiKey(length = 40) {
   return `sk-${out}`;
 }
 
-app.post('/create', (req, res) => {
-  const key = generateApiKey();
-  console.log('Generated key:', key); // buat ngecek di console
-  res.json({ message: 'API key generated', api_key: key });
+// POST /create  -> generate + simpan ke DB
+// optional body: { owner: "nama/email", ttl_minutes: 43200 }
+app.post('/create', async (req, res) => {
+  try {
+    const key = generateApiKey(40);
+    const { owner = null, ttl_minutes = null } = req.body || {};
+
+    let expires_at = null;
+    if (ttl_minutes && Number(ttl_minutes) > 0) {
+      expires_at = new Date(Date.now() + Number(ttl_minutes) * 60 * 1000);
+    }
+
+    const sql = `
+      INSERT INTO api_keys (api_key, owner, expires_at)
+      VALUES (:api_key, :owner, :expires_at)
+    `;
+    await pool.execute(sql, { api_key: key, owner, expires_at });
+
+    return res.json({
+      message: 'API key generated & stored',
+      api_key: key,
+      owner,
+      expires_at
+    });
+  } catch (err) {
+    // kemungkinan duplicate random kecil banget, tapi handle aja
+    console.error(err);
+    return res.status(500).json({ message: 'Failed to create api key' });
+  }
 });
 
-app.post("/checkapi", (req, res) => {
-  const clientKey = req.body.api_key;
+// POST /checkapi  -> validasi ke DB
+// body: { api_key: "sk-xxxx" }
+app.post('/checkapi', async (req, res) => {
+  try {
+    const { api_key } = req.body || {};
+    if (!api_key) {
+      return res.status(400).json({ valid: false, message: 'Missing api_key' });
+    }
 
-  if (!clientKey) {
-    return res.status(400).json({
-      valid: false,
-      message: "Missing api_key in body"
+    // format basic check
+    const formatOk = api_key.startsWith('sk-') &&
+                     api_key.length >= 10 &&
+                     /^[A-Za-z0-9-]+$/.test(api_key);
+    if (!formatOk) {
+      return res.status(401).json({ valid: false, message: 'Invalid key format' });
+    }
+
+    // cek DB
+    const [rows] = await pool.execute(
+      `SELECT id, owner, revoked, created_at, expires_at
+         FROM api_keys
+        WHERE api_key = :api_key
+        LIMIT 1`,
+      { api_key }
+    );
+
+    if (!rows.length) {
+      return res.status(401).json({ valid: false, message: 'API key not found' });
+    }
+
+    const k = rows[0];
+    if (k.revoked) {
+      return res.status(401).json({ valid: false, message: 'API key revoked' });
+    }
+    if (k.expires_at && new Date(k.expires_at) < new Date()) {
+      return res.status(401).json({ valid: false, message: 'API key expired' });
+    }
+
+    return res.json({
+      valid: true,
+      message: 'API key is valid',
+      meta: {
+        id: k.id,
+        owner: k.owner,
+        created_at: k.created_at,
+        expires_at: k.expires_at
+      }
     });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ valid: false, message: 'Check failed' });
   }
-
-  // ✅ RULE VALID — contoh simple:
-  // format harus mulai dengan `sk-` dan panjang minimal 10
-  const isValid =
-    clientKey.startsWith("sk-") &&
-    clientKey.length >= 10 &&
-    /^[A-Za-z0-9\-]+$/.test(clientKey);
-
-  if (!isValid) {
-    return res.status(401).json({
-      valid: false,
-      message: "Invalid API key format"
-    });
-  }
-
-  // ✅ (NANTI BISA DI CEK DB DI SINI)
-  // misalnya:
-  // const exists = await db.key.findOne({ where: { key: clientKey } });
-  // if (!exists) invalid
-
-  return res.json({
-    valid: true,
-    message: "API key is valid"
-  });
 });
 
+// (opsional) revoke key
+// body: { api_key: "sk-xxxx" }
+app.post('/revoke', async (req, res) => {
+  try {
+    const { api_key } = req.body || {};
+    if (!api_key) return res.status(400).json({ message: 'Missing api_key' });
 
-// (opsional) pastiin root balikin index.html
+    const [result] = await pool.execute(
+      `UPDATE api_keys SET revoked = 1 WHERE api_key = :api_key`,
+      { api_key }
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'API key not found' });
+    }
+    return res.json({ message: 'API key revoked' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Failed to revoke key' });
+  }
+});
+
+// root kirim UI
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
