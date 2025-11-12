@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API Key Generator — Forest</title>
+  <style>
+    :root{
+      --bg-0: #0b1b13;            /* deep forest */
+      --bg-1: #0f2a1d;            /* canopy shadow */
+      --bg-2: #123826;            /* moss */
+      --ac-1: #17b169;            /* emerald */
+      --ac-1-600:#13985a;
+      --ac-2: #8ef0c1;            /* mint highlight */
+      --txt-1:#e8f5ee;            /* off-white */
+      --txt-2:#cbe8d9;            /* soft */
+      --ring: rgba(23,177,105,.55);
+      --glass: rgba(255,255,255,.06);
+      --glass-2: rgba(255,255,255,.08);
+      --shadow: 0 20px 60px rgba(0,0,0,.35);
+      --radius-xl: 20px;
+    }
+    /* SF Pro first if available */
+    @font-face {font-family: 'SF Pro'; src: local('SF Pro Display'), local('SF Pro Text'); font-weight: 100 900; font-style: normal; font-display: swap;}
+    html,body{height:100%;}
+    body{
+      margin:0; display:grid; place-items:center; min-height:100dvh; color:var(--txt-1);
+      font-family: 'SF Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial, system-ui, sans-serif;
+      background: radial-gradient(1200px 800px at 20% 10%, #1a3a2b 0%, transparent 60%),
+                  radial-gradient(1200px 800px at 80% 90%, #0e2f22 0%, transparent 55%),
+                  linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+      overflow:hidden;
+    }
+    /* soft moving fog */
+    .fog{ position:fixed; inset:-20vh -20vw; pointer-events:none; filter: blur(30px) saturate(120%); opacity:.35; mix-blend-mode:screen; }
+    .fog::before,.fog::after{
+      content:""; position:absolute; inset:0; background:
+        radial-gradient(40vmax 30vmax at 20% 30%, #1aa06b40, transparent 60%),
+        radial-gradient(35vmax 28vmax at 80% 60%, #2bcf8a30, transparent 60%),
+        radial-gradient(50vmax 45vmax at 50% 100%, #0d6b4540, transparent 55%);
+      animation: drift 30s linear infinite;
+    }
+    .fog::after{ animation-duration: 45s; animation-direction: reverse; }
+    @keyframes drift{ to{ transform: translate3d(10%, -6%, 0) scale(1.05);} }
+
+    .wrap{ width:min(920px, 92vw); padding:28px; }
+
+    .card{
+      position:relative; background:linear-gradient(180deg, var(--glass), var(--glass-2));
+      backdrop-filter: blur(14px) saturate(130%);
+      border:1px solid rgba(255,255,255,.1);
+      box-shadow: var(--shadow);
+      border-radius: var(--radius-xl);
+      overflow:hidden;
+    }
+    .card::before{
+      content:""; position:absolute; inset:0; pointer-events:none;
+      background: radial-gradient(160px 140px at 20% 0%, #9cf7d833, transparent 60%),
+                  radial-gradient(200px 180px at 100% 0%, #2be09322, transparent 60%);
+    }
+    header{ padding:28px 28px 0; }
+    header h1{ margin:0 0 6px; font-size: clamp(24px, 2.4vw, 32px); letter-spacing:.3px; }
+    header p{ margin:0; color:var(--txt-2); font-size: clamp(14px, 1.3vw, 16px); }
+
+    .body{ padding:22px 28px 28px; }
+    .row{ display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+
+    .field{
+      flex:1 1 420px; position:relative; display:flex; align-items:center;
+      background:#031a1220; border:1px solid rgba(142, 240, 193, .18);
+      border-radius:14px; padding:14px 14px; min-height:56px;
+      box-shadow: inset 0 0 0 1px rgba(23,177,105,.12);
+    }
+    .field input{
+      all:unset; color:var(--txt-1); font-size:16px; letter-spacing:.3px; width:100%;
+      white-space:nowrap; overflow:auto; scrollbar-width:none;
+    }
+    .field input::-webkit-scrollbar{ display:none; }
+
+    .monospace{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'JetBrains Mono', monospace; }
+
+    .btn{
+      appearance:none; border:0; border-radius:14px; cursor:pointer; padding:14px 16px; 
+      font-weight:600; letter-spacing:.3px; transition:transform .06s ease, box-shadow .2s ease, background .2s ease;
+      box-shadow: 0 6px 22px rgba(23,177,105,.25);
+      outline: 2px solid transparent; outline-offset: 2px;
+    }
+    .btn:active{ transform: translateY(1px); }
+
+    .btn.primary{ background: linear-gradient(180deg, var(--ac-1), var(--ac-1-600)); color:#03180f; }
+    .btn.primary:hover{ filter: brightness(1.05); }
+    .btn.ghost{ background: transparent; color: var(--txt-1); border:1px solid rgba(142,240,193,.22); }
+    .btn.ghost:hover{ background: rgba(255,255,255,.06); }
+
+    .options{ display:flex; gap:16px; align-items:center; margin-top:12px; color:var(--txt-2); font-size:14px; }
+    .options label{ display:flex; gap:8px; align-items:center; cursor:pointer; }
+    .options select{ background:#0d3727; color:var(--txt-1); border:1px solid rgba(142,240,193,.2); border-radius:10px; padding:8px 10px; }
+
+    /* toast */
+    .toast{ position: fixed; left:50%; bottom:28px; transform: translateX(-50%) translateY(16px); opacity:0; 
+      background: #0d2b1f; border:1px solid rgba(142,240,193,.25); color:var(--txt-1); 
+      padding:12px 14px; border-radius:12px; box-shadow: var(--shadow); transition: .35s ease; }
+    .toast.show{ transform: translateX(-50%) translateY(0); opacity:1; }
+
+    /* ring focus */
+    .field:focus-within{ box-shadow: 0 0 0 3px var(--ring), inset 0 0 0 1px rgba(23,177,105,.18); }
+    .btn:focus-visible{ outline-color: var(--ac-2); box-shadow: 0 0 0 6px rgba(142,240,193,.18); }
+
+    /* tiny badges */
+    .badge{ font-size:12px; color:#062817; background:rgba(142,240,193,.18); border:1px solid rgba(142,240,193,.35); padding:4px 8px; border-radius:999px; }
+
+    /* responsive layout tweak */
+    @media (max-width: 520px){ .row{ flex-direction:column; align-items:stretch; } }
+  </style>
+</head>
+<body>
+  <div class="fog" aria-hidden="true"></div>
+
+  <main class="wrap">
+    <section class="card" role="region" aria-labelledby="title">
+      <header>
+        <h1 id="title">API Key Generator</h1>
+        <p>Generate secure, copy-ready keys in a forest‑fresh vibe 🌿</p>
+      </header>
+      <div class="body">
+        <div class="row" role="group" aria-label="Key actions">
+          <div class="field" id="keyField">
+            <input id="key" class="monospace" type="text" value="" readonly aria-label="Generated API key" />
+          </div>
+          <button class="btn primary" id="genBtn" type="button" aria-label="Generate new key">Generate New</button>
+          <button class="btn ghost" id="copyBtn" type="button" aria-label="Copy key to clipboard">Copy</button>
+        </div>
+        
+        <div class="options">
+          <label><input type="checkbox" id="autoCopy" /> Auto‑copy on generate</label>
+          <label>Format:
+            <select id="format">
+              <option value="sk-40" selected>sk- + 40 chars</option>
+              <option value="sk-48">sk- + 48 chars</option>
+              <option value="plain-32">32 chars (plain)</option>
+              <option value="plain-64">64 chars (plain)</option>
+            </select>
+          </label>
+          <span class="badge" title="Cryptographically strong random">crypto‑safe</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    // Base62 alphabet for compact keys
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+    function randBase62(length){
+      const arr = new Uint32Array(length);
+      crypto.getRandomValues(arr);
+      let out = '';
+      for (let i=0;i<length;i++) out += ALPHABET[arr[i] % ALPHABET.length];
+      return out;
+    }
+
+    function generateKey(fmt){
+      switch(fmt){
+        case 'sk-40': return 'sk-' + randBase62(40);
+        case 'sk-48': return 'sk-' + randBase62(48);
+        case 'plain-32': return randBase62(32);
+        case 'plain-64': return randBase62(64);
+        default: return 'sk-' + randBase62(40);
+      }
+    }
+
+    async function copyToClipboard(text){
+      try{
+        await navigator.clipboard.writeText(text);
+        toast('Copied to clipboard');
+      }catch(err){
+        // fallback: select text for manual copy
+        const input = document.getElementById('key');
+        input.select();
+        input.setSelectionRange(0, 99999);
+        toast('Press Ctrl/Cmd + C to copy');
+      }
+    }
+
+    let toastTimer;
+    function toast(msg){
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(()=> el.classList.remove('show'), 1800);
+    }
+
+    function setKey(value){
+      const input = document.getElementById('key');
+      input.value = value;
+    }
+
+    function init(){
+      const genBtn = document.getElementById('genBtn');
+      const copyBtn = document.getElementById('copyBtn');
+      const keyField = document.getElementById('keyField');
+      const select = document.getElementById('format');
+      const autoCopy = document.getElementById('autoCopy');
+
+      // first paint
+      setKey(generateKey(select.value))
+
+    async function generateFromServer() {
+    try {
+      const res = await fetch("/create", {   // <— relatif ke origin saat ini
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setKey(data.api_key);                  // fungsi lu yg isi input
+      // ... lanjut toast/auto-copy kalau ada
+    } catch (err) {
+      console.error(err);
+      toast("Failed to fetch key");          // pesan yg tampil di kamu
+    }
+        } 
+
+      genBtn.addEventListener('click', async () => {
+        try {
+          const res = await fetch('http://localhost:3000/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          const data = await res.json();
+          const key = data.api_key;
+          setKey(key);
+          if(autoCopy.checked){ await copyToClipboard(key); }
+          else { toast('New key generated from server'); }
+        } catch(err){
+          toast('Failed to fetch key');
+        }
+      });
+
+      copyBtn.addEventListener('click', ()=> copyToClipboard(document.getElementById('key').value));
+      keyField.addEventListener('click', ()=> copyToClipboard(document.getElementById('key').value));
+
+      // keyboard accessibility: Enter copies
+      document.getElementById('key').addEventListener('keydown', (e)=>{
+        if(e.key === 'Enter') copyToClipboard(e.target.value);
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
