@@ -67,6 +67,18 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
+app.get("/keys", async (_req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT id, api_key, created_at FROM api_keys ORDER BY id DESC"
+    );
+    res.json({ count: rows.length, data: rows });
+  } catch (err) {
+    console.error("💥 /keys error:", err.sqlMessage || err.message);
+    res.status(500).json({ message: "Failed to fetch keys" });
+  }
+});
+
 app.listen(port, () => {
   console.log(`✅ Server running at http://localhost:${port}`);
 });
