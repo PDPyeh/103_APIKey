@@ -107,7 +107,9 @@
     .btn:focus-visible{ outline-color: var(--ac-2); box-shadow: 0 0 0 6px rgba(142,240,193,.18); }
 
     /* tiny badges */
-    .badge{ font-size:12px; color:#062817; background:rgba(142,240,193,.18); border:1px solid rgba(142,240,193,.35); padding:4px 8px; border-radius:999px; }
+    $1
+    .badge.ok{ background:rgba(46, 204, 113,.18); border-color:rgba(46, 204, 113,.55); color:#bdf7d6; }
+    .badge.err{ background:rgba(231, 76, 60,.18); border-color:rgba(231, 76, 60,.55); color:#ffd6d1; }
 
     /* responsive layout tweak */
     @media (max-width: 520px){ .row{ flex-direction:column; align-items:stretch; } }
@@ -129,18 +131,12 @@
           </div>
           <button class="btn primary" id="genBtn" type="button" aria-label="Generate new key">Generate New</button>
           <button class="btn ghost" id="copyBtn" type="button" aria-label="Copy key to clipboard">Copy</button>
+          <button class="btn ghost" id="checkBtn" type="button" aria-label="Check key validity">Check</button>
+        </div>
         </div>
         
-        <div class="options">
-          <label><input type="checkbox" id="autoCopy" /> Auto‑copy on generate</label>
-          <label>Format:
-            <select id="format">
-              <option value="sk-40" selected>sk- + 40 chars</option>
-              <option value="sk-48">sk- + 48 chars</option>
-              <option value="plain-32">32 chars (plain)</option>
-              <option value="plain-64">64 chars (plain)</option>
-            </select>
-          </label>
+        $1
+          <span id="statusBadge" class="badge" style="display:none">checking…</span>
           <span class="badge" title="Cryptographically strong random">crypto‑safe</span>
         </div>
       </div>
@@ -198,45 +194,65 @@
       input.value = value;
     }
 
+    function setStatus(state){
+      // state: true(valid) | false(invalid) | 'checking' | undefined(reset)
+      if(!statusBadge) return;
+      statusBadge.style.display = (state===undefined) ? 'none' : 'inline-block';
+      statusBadge.classList.remove('ok','err');
+      if(state === true){ statusBadge.textContent = 'valid'; statusBadge.classList.add('ok'); }
+      else if(state === false){ statusBadge.textContent = 'invalid'; statusBadge.classList.add('err'); }
+      else if(state === 'checking'){ statusBadge.textContent = 'checking…'; }
+    }
+
     function init(){
       const genBtn = document.getElementById('genBtn');
       const copyBtn = document.getElementById('copyBtn');
+      const checkBtn = document.getElementById('checkBtn');
       const keyField = document.getElementById('keyField');
-      const select = document.getElementById('format');
+      const select = document.getElementById('format') || { value: 'sk-40' };
+      const autoCopy = document.getElementById('autoCopy') || { checked:false };
+      const statusBadge = document.getElementById('statusBadge');
       const autoCopy = document.getElementById('autoCopy');
 
-      // first paint
-      setKey(generateKey(select.value))
-
-    async function generateFromServer() {
-    try {
-      const res = await fetch("/create", {   // <— relatif ke origin saat ini
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setKey(data.api_key);                  // fungsi lu yg isi input
-      // ... lanjut toast/auto-copy kalau ada
-    } catch (err) {
-      console.error(err);
-      toast("Failed to fetch key");          // pesan yg tampil di kamu
-    }
-        } 
+      // first paint — no local generate to avoid null reference when format select is absent
+      setKey('');
 
       genBtn.addEventListener('click', async () => {
         try {
-          const res = await fetch('http://localhost:3000/create', {
+          const res = await fetch('/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
           });
+          if(!res.ok) throw new Error('HTTP '+res.status);
           const data = await res.json();
           const key = data.api_key;
           setKey(key);
+          setStatus(undefined); // reset status badge after new key
           if(autoCopy.checked){ await copyToClipboard(key); }
           else { toast('New key generated from server'); }
         } catch(err){
+          console.error(err);
           toast('Failed to fetch key');
+        }
+      });
+
+      checkBtn.addEventListener('click', async ()=>{
+        const key = document.getElementById('key').value.trim();
+        if(!key){ toast('No key to check'); return; }
+        try{
+          setStatus('checking');
+          const res = await fetch('/checkapi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: key })
+          });
+          const data = await res.json();
+          if(res.ok && data.valid){ setStatus(true); toast('Key valid ✅'); }
+          else { setStatus(false); toast(data.message || 'Key invalid'); }
+        }catch(err){
+          console.error(err);
+          setStatus(false);
+          toast('Check failed');
         }
       });
 
